@@ -1,0 +1,23 @@
+{
+  "name": "biojs-component-checker",
+  "version": "1.0.0",
+  "description": "biojs package quality checker",
+  "main": "index.js",
+  "dependencies": {
+    "request": "^2.88.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/biojs/component-checker.git"
+  },
+  "author": "Yo Yehudi",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/biojs/component-checker/issues"
+  },
+  "homepage": "https://github.com/biojs/component-checker#readme"
+}

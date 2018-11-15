@@ -1,5 +1,10 @@
 var request = require('request');
 
+var config = {
+  cdn: "cdn.jsdelivr.net/gh",
+  travis: "https://api.travis-ci.org/repo/"
+}
+
 //pass/fail test results are added to this object
 var results = {
   warnings: []
@@ -8,69 +13,105 @@ var results = {
 var checks = {
   //list all checks here, they'll be executed sequentially.
   hasReadme: function(settings) {
-    checkForFile(settings, ["README.md", "README"],'hasReadme');
+    checkForFile(settings, ["README.md", "README"], 'hasReadme');
   },
   hasSnippets: function(settings) {
-    config.checkForSnippets(settings);
+    packageJsonChecks.checkForSnippets(settings);
   },
-  hasBuiltDistFiles: function(settings){
-    config.checkForBuiltCSSandJS(settings);
+  hasBuiltDistFiles: function(settings) {
+    packageJsonChecks.checkForBuiltCSSandJS(settings);
+  },
+  hasCI: function(settings) {
+    ci.checkCI(settings);
   }
   // TO CHECK FOR:
   // - CI / tests
-  // path to built file
   // galaxy config (whatever this means)
   // UI events
 }
 
-var config = {
+var ci = {
+  checkCI: function(settings) {
+    //theoretically we can add other CIs, too.
+    return new Promise(function() {
+      ci.checkTravis(settings)
+    });
+  },
+  checkTravis: function(settings) {
+    packageJsonChecks.getPackageJson(settings).then(function() {
+      //get git repo url. //TODO if not present, try using url.
+      var slug = getRepoSlug(settings.url);
+      var requestOptions = {
+        url: config.travis + encodeURIComponent(slug) + "/builds?limit=1",
+        headers: {
+          "Travis-API-Version": 3
+        }
+      }
+      var travis = new Promise(function(resolve, reject) {
+        request(requestOptions, function(error, response, body) {
+          if (response.statusCode == 200) {
+            console.log("travis active", response.body);
+            resolve(response);
+          } else {
+            console.log("Failed to find travis");
+            resolve(false);
+          }
+        })
+      });
+      return travis;
+
+    });
+  }
+};
+
+var packageJsonChecks = {
   packageJson: null,
   checkForSnippets: function(settings) {
-    config.getPackageJson(settings).then(function(packageJson) {
+    packageJsonChecks.getPackageJson(settings).then(function(packageJson) {
       results["hasSnippets"] = false;
       if (packageJson.sniper) {
         if (packageJson.sniper.snippets) {
-            results["hasSnippets"] = true;
+          results["hasSnippets"] = true;
         }
       }
       console.log(results);
     });
   },
   checkForBuiltCSSandJS: function(settings, thisPromise) {
-    config.getPackageJson(settings).then(function(packageJson) {
+    packageJsonChecks.getPackageJson(settings).then(function(packageJson) {
       results["hasBuiltDistFiles"] = false;
       if (packageJson.sniper) {
         //I see you thinking "this should be refactored" but seriously, unless we
-        // have more than two deprecated options this would be overengineering.
+        // have more than two deprecated options that would be overengineering.
         if (packageJson.sniper.js) {
-            results["warnings"].push("sniper.js is deprecated. Please use buildJS instead - https://edu.biojs.net/details/package_json/");
+          results["warnings"].push("sniper.js is deprecated. Please use buildJS instead - https://edu.biojs.net/details/package_json/");
         }
         if (packageJson.sniper.css) {
-            results["warnings"].push("sniper.css is deprecated. Please use buildCSS instead - https://edu.biojs.net/details/package_json/");
+          results["warnings"].push("sniper.css is deprecated. Please use buildCSS instead - https://edu.biojs.net/details/package_json/");
         }
         if (packageJson.sniper.buildCSS && packageJson.sniper.buildJS) {
-            results["hasBuiltDistFiles"] = true;
+          results["hasBuiltDistFiles"] = true;
         }
       }
-//      thisPromise.resolve(true);
+      //      thisPromise.resolve(true);
       console.log(results);
     });
   },
   getPackageJson: function(settings) {
     var packageJsonPromise = new Promise(function(resolve, reject) {
 
-        var url = settings.url;
-        if (config.packageJson) {
-          resolve(config.packageJson);
-        } else {
-          if (isGitHub(url)) {
-            fileToGet = convertGitHubToJsDelivr(url);
-          }
-          fetchFile(fileToGet, "package.json").then(function(res) {
-            config.packageJson = JSON.parse(res.body);
-            resolve(config.packageJson);
-          });
+      var url = settings.url;
+      if (packageJsonChecks.packageJson) {
+        resolve(packageJsonChecks.packageJson);
+      } else {
+        if (isGitHub(url)) {
+          fileToGet = convertGitHubToCDN(url);
         }
+        fetchFile(fileToGet, "package.json").then(function(res) {
+          packageJsonChecks.packageJson = JSON.parse(res.body);
+          resolve(packageJsonChecks.packageJson);
+        });
+      }
     });
     return packageJsonPromise;
   }
@@ -97,7 +138,7 @@ function checkComponent(settings) {
  **/
 function checkForFile(settings, fileNames, checkName) {
   if (settings.url) {
-    console.log("checking",checkName);
+    console.log("checking", checkName);
 
     checkForFileWeb(settings.url, fileNames, checkName);
   } else {
@@ -110,7 +151,7 @@ function checkForFileWeb(url, fileNames, checkName, currentFile) {
   var fileToGet = url;
   var currentFile = currentFile || 0;
   if (isGitHub(url)) {
-    fileToGet = convertGitHubToJsDelivr(url);
+    fileToGet = convertGitHubToCDN(url);
     fetchFile(fileToGet, fileNames[currentFile])
       .then(function(response) {
         if (!response) {
@@ -133,7 +174,7 @@ function checkForFileWeb(url, fileNames, checkName, currentFile) {
 function fetchFile(filePath, fileName) {
   var theFile = new Promise(function(resolve, reject) {
     try {
-        request(filePath + "/" + fileName, function(error, response, body) {
+      request(filePath + "/" + fileName, function(error, response, body) {
         if (response.statusCode == 200) {
           console.log("Found " + fileName);
           resolve(response);
@@ -158,15 +199,23 @@ function isGitHub(url) {
   return url.indexOf("https://github.com") == 0;
 }
 
+function getRepoSlug(url) {
+  //this will fail interestingly on urls that aren't a github repo and/or have subpaths.
+  var regex = "(?:https:\/\/github\.com\/)([A-Za-z-_\.]+\/[A-Za-z-_\.]+)";
+  return url.match(regex)[1];
+}
+
 /**
  * Given a GitHub repo HTTPS URL, we'll convert it to URL we can GET the file from
  * @param url {string} a GitHub HTTPS url
  * @returns {string} the same URL converted to a url where a file from the repo is served
  **/
-function convertGitHubToJsDelivr(url) {
+function convertGitHubToCDN(url) {
   //https://cdn.jsdelivr.net/gh/jquery/jquery/
-  return url.replace("github.com", "cdn.jsdelivr.net/gh");
+  //todo, work with gitlab, npm - probably a simple regex?
+  return url.replace("github.com", config.cdn);
 }
+
 
 (function main() {
   //check if this is a node script and execute with the args.

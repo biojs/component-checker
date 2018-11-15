@@ -1,7 +1,9 @@
 var request = require('request');
 
 //pass/fail test results are added to this object
-var results = {};
+var results = {
+  warnings: []
+};
 
 var checks = {
   //list all checks here, they'll be executed sequentially.
@@ -10,9 +12,13 @@ var checks = {
   },
   hasSnippets: function(settings) {
     config.checkForSnippets(settings);
+  },
+  hasBuiltDistFiles: function(settings){
+    config.checkForBuiltCSSandJS(settings);
   }
   // TO CHECK FOR:
   // - CI / tests
+  // path to built file
   // galaxy config (whatever this means)
   // UI events
 }
@@ -27,6 +33,26 @@ var config = {
             results["hasSnippets"] = true;
         }
       }
+      console.log(results);
+    });
+  },
+  checkForBuiltCSSandJS: function(settings, thisPromise) {
+    config.getPackageJson(settings).then(function(packageJson) {
+      results["hasBuiltDistFiles"] = false;
+      if (packageJson.sniper) {
+        //I see you thinking "this should be refactored" but seriously, unless we
+        // have more than two deprecated options this would be overengineering.
+        if (packageJson.sniper.js) {
+            results["warnings"].push("sniper.js is deprecated. Please use buildJS instead - https://edu.biojs.net/details/package_json/");
+        }
+        if (packageJson.sniper.css) {
+            results["warnings"].push("sniper.css is deprecated. Please use buildCSS instead - https://edu.biojs.net/details/package_json/");
+        }
+        if (packageJson.sniper.buildCSS && packageJson.sniper.buildJS) {
+            results["hasBuiltDistFiles"] = true;
+        }
+      }
+//      thisPromise.resolve(true);
       console.log(results);
     });
   },
@@ -56,6 +82,7 @@ var config = {
  * @param settings {object} a url for the repo to check. syntax {"url" : "someURL"}
  **/
 function checkComponent(settings) {
+  var runningChecks = [];
   Object.keys(checks).map(function(checkName) {
     checks[checkName](settings);
   });

@@ -6,13 +6,49 @@ var results = {};
 var checks = {
   //list all checks here, they'll be executed sequentially.
   hasReadme: function(settings) {
-    checkForFile(settings, ["README.md", "README"], null, 'hasReadme');
+    checkForFile(settings, ["README.md", "README"],'hasReadme', null);
+  },
+  hasSnippets: function(settings) {
+    config.checkForSnippets(settings);
   }
   // TO CHECK FOR:
   // - CI / tests
   // galaxy config (whatever this means)
   // UI events
   // snippets
+}
+
+var config = {
+  packageJson: null,
+  checkForSnippets: function(settings) {
+    config.getPackageJson(settings).then(function(packageJson) {
+      results["hasSnippets"] = false;
+      if (packageJson.sniper) {
+        if (packageJson.sniper.snippets) {
+            results["hasSnippets"] = true;
+        }
+      }
+      console.log(results);
+    });
+  },
+  getPackageJson: function(settings) {
+    var packageJsonPromise = new Promise(function(resolve, reject) {
+
+        var url = settings.url;
+        if (config.packageJson) {
+          resolve(config.packageJson);
+        } else {
+          if (isGitHub(url)) {
+            fileToGet = convertGitHubToJsDelivr(url);
+          }
+          fetchFile(fileToGet, "package.json").then(function(res) {
+            config.packageJson = JSON.parse(res.body);
+            resolve(config.packageJson);
+          });
+        }
+    });
+    return packageJsonPromise;
+  }
 }
 
 /**
@@ -35,6 +71,8 @@ function checkComponent(settings) {
  **/
 function checkForFile(settings, fileNames, checkName) {
   if (settings.url) {
+    console.log("checking",checkName);
+
     checkForFileWeb(settings.url, fileNames, checkName);
   } else {
     //TODO LOCAL file access.
@@ -46,7 +84,7 @@ function checkForFileWeb(url, fileNames, checkName, currentFile) {
   var fileToGet = url;
   var currentFile = currentFile || 0;
   if (isGitHub(url)) {
-    fileToGet = fullGitHubUrl(url);
+    fileToGet = convertGitHubToJsDelivr(url);
     fetchFile(fileToGet, fileNames[currentFile])
       .then(function(response) {
         if (!response) {
@@ -69,16 +107,15 @@ function checkForFileWeb(url, fileNames, checkName, currentFile) {
 function fetchFile(filePath, fileName) {
   var theFile = new Promise(function(resolve, reject) {
     try {
-      request(filePath + "/" + fileName)
-        .on("response", function(response) {
-          if (response.statusCode == 200) {
-            console.log("Found " + fileName);
-            resolve(response);
-          } else {
-            console.log("Failed to find " + fileName);
-            resolve(false);
-          }
-        });
+        request(filePath + "/" + fileName, function(error, response, body) {
+        if (response.statusCode == 200) {
+          console.log("Found " + fileName);
+          resolve(response);
+        } else {
+          console.log("Failed to find " + fileName);
+          resolve(false);
+        }
+      })
     } catch (e) {
       console.log(e);
     }
@@ -100,18 +137,9 @@ function isGitHub(url) {
  * @param url {string} a GitHub HTTPS url
  * @returns {string} the same URL converted to a url where a file from the repo is served
  **/
-function convertGitHubToRaw(url) {
-  //https://raw.githubusercontent.com/wilzbach/msa/master/README.md
-  return url.replace("github.com", "raw.githubusercontent.com");
-}
-
-/**
- * in order to GET a file, you'll need a commit hash or branch. For now, we'll assume master must have the files for it to pass the quality check.
- * @param url {string} a GitHub HTTPS url
- * @returns {string} the same URL with a branch name appended (master)
- **/
-function fullGitHubUrl(url) {
-  return newUrl = convertGitHubToRaw(url) + "/master";
+function convertGitHubToJsDelivr(url) {
+  //https://cdn.jsdelivr.net/gh/jquery/jquery/
+  return url.replace("github.com", "cdn.jsdelivr.net/gh");
 }
 
 (function main() {

@@ -6,7 +6,7 @@ var results = {};
 var checks = {
   //list all checks here, they'll be executed sequentially.
   hasReadme: function(settings) {
-    checkForFile(settings, ["README.md", "README"],'hasReadme', null);
+    checkForFile(settings, ["README.md", "README"],'hasReadme');
   },
   hasSnippets: function(settings) {
     config.checkForSnippets(settings);
@@ -15,7 +15,6 @@ var checks = {
   // - CI / tests
   // galaxy config (whatever this means)
   // UI events
-  // snippets
 }
 
 var config = {

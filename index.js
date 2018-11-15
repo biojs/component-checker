@@ -121,4 +121,4 @@ function fullGitHubUrl(url) {
     console.log("Using settings: ", settings.url);
     checkComponent(settings);
   }
-})()
+})();

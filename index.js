@@ -33,24 +33,31 @@ var checks = {
 var ci = {
   checkCI: function(settings) {
     //theoretically we can add other CIs, too.
-    return new Promise(function() {
-      ci.checkTravis(settings)
+    var ciPromise = new Promise(function(resolve, reject) {
+      ci.checkTravis(settings).then(function() {
+        console.log(results);
+        resolve(true);
+      });
     });
+    return ciPromise;
   },
   checkTravis: function(settings) {
-    packageJsonChecks.getPackageJson(settings).then(function() {
-      //get git repo url. //TODO if not present, try using url.
-      var slug = getRepoSlug(settings.url);
-      var requestOptions = {
-        url: config.travis + encodeURIComponent(slug) + "/builds?limit=1",
-        headers: {
-          "Travis-API-Version": 3
+    var travis = new Promise(function(resolve, reject) {
+      packageJsonChecks.getPackageJson(settings).then(function() {
+        //get git repo url. //TODO if not present, try using settings.url.
+        var slug = getRepoSlug(settings.url);
+        var requestOptions = {
+          url: config.travis + encodeURIComponent(slug) + "/builds?limit=1",
+          headers: {
+            "Travis-API-Version": 3
+          }
         }
-      }
-      var travis = new Promise(function(resolve, reject) {
         request(requestOptions, function(error, response, body) {
           if (response.statusCode == 200) {
-            console.log("travis active", response.body);
+            results["travis"] = {
+              present: true,
+              state: JSON.parse(response.body).builds[0].state
+            }
             resolve(response);
           } else {
             console.log("Failed to find travis");
@@ -58,9 +65,9 @@ var ci = {
           }
         })
       });
-      return travis;
 
     });
+    return travis;
   }
 };
 

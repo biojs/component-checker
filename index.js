@@ -10,10 +10,12 @@ var results = {
   warnings: []
 };
 
+var allChecks = [];
+
 var checks = {
   //list all checks here, they'll be executed sequentially.
   hasReadme: function(settings) {
-    checkForFile(settings, ["README.md", "README"], 'hasReadme');
+    return checkForFile(settings, ["README.md", "README"], 'hasReadme');
   },
   hasSnippets: function(settings) {
     packageJsonChecks.checkForSnippets(settings);
@@ -22,10 +24,9 @@ var checks = {
     packageJsonChecks.checkForBuiltCSSandJS(settings);
   },
   hasCI: function(settings) {
-    ci.checkCI(settings);
+    return ci.checkCI(settings);
   }
   // TO CHECK FOR:
-  // - CI / tests
   // galaxy config (whatever this means)
   // UI events
 }
@@ -35,7 +36,6 @@ var ci = {
     //theoretically we can add other CIs, too.
     var ciPromise = new Promise(function(resolve, reject) {
       ci.checkTravis(settings).then(function() {
-        console.log(results);
         resolve(true);
       });
     });
@@ -65,7 +65,6 @@ var ci = {
           }
         })
       });
-
     });
     return travis;
   }
@@ -81,32 +80,31 @@ var packageJsonChecks = {
           results["hasSnippets"] = true;
         }
       }
-      console.log(results);
     });
   },
-  checkForBuiltCSSandJS: function(settings, thisPromise) {
-    packageJsonChecks.getPackageJson(settings).then(function(packageJson) {
-      results["hasBuiltDistFiles"] = false;
-      if (packageJson.sniper) {
-        //I see you thinking "this should be refactored" but seriously, unless we
-        // have more than two deprecated options that would be overengineering.
-        if (packageJson.sniper.js) {
-          results["warnings"].push("sniper.js is deprecated. Please use buildJS instead - https://edu.biojs.net/details/package_json/");
+  checkForBuiltCSSandJS: function(settings) {
+    return new Promise(function(resolve) {
+      packageJsonChecks.getPackageJson(settings).then(function(packageJson) {
+        results["hasBuiltDistFiles"] = false;
+        if (packageJson.sniper) {
+          //I see you thinking "this should be refactored" but seriously, unless we
+          // have more than two deprecated options that would be overengineering.
+          if (packageJson.sniper.js) {
+            results["warnings"].push("The sniper 'js' property is deprecated. Please use 'buildJS' instead - https://edu.biojs.net/details/package_json/");
+          }
+          if (packageJson.sniper.css) {
+            results["warnings"].push("The sniper 'css' property . Please use 'buildCSS' instead - https://edu.biojs.net/details/package_json/");
+          }
+          if (packageJson.sniper.buildCSS && packageJson.sniper.buildJS) {
+            results["hasBuiltDistFiles"] = true;
+          }
         }
-        if (packageJson.sniper.css) {
-          results["warnings"].push("sniper.css is deprecated. Please use buildCSS instead - https://edu.biojs.net/details/package_json/");
-        }
-        if (packageJson.sniper.buildCSS && packageJson.sniper.buildJS) {
-          results["hasBuiltDistFiles"] = true;
-        }
-      }
-      //      thisPromise.resolve(true);
-      console.log(results);
+        resolve();
+      });
     });
   },
   getPackageJson: function(settings) {
-    var packageJsonPromise = new Promise(function(resolve, reject) {
-
+    return new Promise(function(resolve, reject) {
       var url = settings.url;
       if (packageJsonChecks.packageJson) {
         resolve(packageJsonChecks.packageJson);
@@ -120,7 +118,6 @@ var packageJsonChecks = {
         });
       }
     });
-    return packageJsonPromise;
   }
 }
 
@@ -132,9 +129,9 @@ var packageJsonChecks = {
 function checkComponent(settings) {
   var runningChecks = [];
   Object.keys(checks).map(function(checkName) {
-    checks[checkName](settings);
+    runningChecks.push(checks[checkName](settings));
   });
-  //TODO - process all promises and return the results object
+  return Promise.all(runningChecks);
 }
 
 /**
@@ -144,35 +141,39 @@ function checkComponent(settings) {
  * @param checkName {string} the name of the property to set once the check is complete
  **/
 function checkForFile(settings, fileNames, checkName) {
-  if (settings.url) {
-    console.log("checking", checkName);
-
-    checkForFileWeb(settings.url, fileNames, checkName);
-  } else {
-    //TODO LOCAL file access.
-    return "TODO";
-  }
+  return new Promise(function(resolve) {
+    if (settings.url) {
+      console.log("|- checking", checkName);
+      checkForFileWeb(settings.url, fileNames, checkName).then(resolve);
+    } else {
+      //TODO LOCAL file access.
+      resolve(true);
+    }
+  });
 }
 
 function checkForFileWeb(url, fileNames, checkName, currentFile) {
   var fileToGet = url;
   var currentFile = currentFile || 0;
-  if (isGitHub(url)) {
-    fileToGet = convertGitHubToCDN(url);
-    fetchFile(fileToGet, fileNames[currentFile])
-      .then(function(response) {
-        if (!response) {
-          //are there any more files to check for?
-          var nextFileIndex = currentFile + 1
-          if (fileNames.length > nextFileIndex) {
-            checkForFileWeb(url, fileNames, checkName, nextFileIndex);
+  return new Promise(function(resolve) {
+    if (isGitHub(url)) {
+      fileToGet = convertGitHubToCDN(url);
+      fetchFile(fileToGet, fileNames[currentFile])
+        .then(function(response) {
+          if (!response) {
+            //are there any more files to check for?
+            var nextFileIndex = currentFile + 1
+            if (fileNames.length > nextFileIndex) {
+              checkForFileWeb(url, fileNames, checkName, nextFileIndex);
+            }
+            results[checkName] = false;
+          } else {
+            results[checkName] = true;
+            resolve();
           }
-          results[checkName] = false;
-        } else {
-          results[checkName] = true;
-        }
-      });
-  }
+        });
+    }
+  });
 }
 
 /**
@@ -183,10 +184,10 @@ function fetchFile(filePath, fileName) {
     try {
       request(filePath + "/" + fileName, function(error, response, body) {
         if (response.statusCode == 200) {
-          console.log("Found " + fileName);
+          console.log("|---Found " + fileName);
           resolve(response);
         } else {
-          console.log("Failed to find " + fileName);
+          console.log("|-x-Failed to find " + fileName);
           resolve(false);
         }
       })
@@ -228,7 +229,9 @@ function convertGitHubToCDN(url) {
   //check if this is a node script and execute with the args.
   if (process) {
     var settings = JSON.parse(process.argv[2]);
-    console.log("Using settings: ", settings.url);
-    checkComponent(settings);
+    checkComponent(settings).then(function(){
+      console.log("|========= Check results:");
+      console.log(results);
+    });
   }
 })();

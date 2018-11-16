@@ -15,16 +15,16 @@ var allChecks = [];
 var checks = {
   //list all checks here, they'll be executed sequentially.
   hasReadme: function(settings) {
-    return checkForFile(settings, ["README.md", "README"], 'hasReadme');
+    return checkForFile(settings, ["README.md", "README"], 'hasReadme').catch(console.error);
   },
   hasSnippets: function(settings) {
-    packageJsonChecks.checkForSnippets(settings);
+    return packageJsonChecks.checkForSnippets(settings).catch(console.error);
   },
   hasBuiltDistFiles: function(settings) {
-    packageJsonChecks.checkForBuiltCSSandJS(settings);
+    return packageJsonChecks.checkForBuiltCSSandJS(settings).catch(console.error);
   },
   hasCI: function(settings) {
-    return ci.checkCI(settings);
+    return ci.checkCI(settings).catch(console.error);
   }
   // TO CHECK FOR:
   // galaxy config (whatever this means)
@@ -37,7 +37,7 @@ var ci = {
     var ciPromise = new Promise(function(resolve, reject) {
       ci.checkTravis(settings).then(function() {
         resolve(true);
-      });
+      }).catch(reject);
     });
     return ciPromise;
   },
@@ -64,7 +64,7 @@ var ci = {
             resolve(false);
           }
         })
-      });
+      }).catch(reject);
     });
     return travis;
   }
@@ -73,17 +73,20 @@ var ci = {
 var packageJsonChecks = {
   packageJson: null,
   checkForSnippets: function(settings) {
-    packageJsonChecks.getPackageJson(settings).then(function(packageJson) {
-      results["hasSnippets"] = false;
-      if (packageJson.sniper) {
-        if (packageJson.sniper.snippets) {
-          results["hasSnippets"] = true;
+    return new Promise(function(resolve, reject) {
+      packageJsonChecks.getPackageJson(settings).then(function(packageJson) {
+        results["hasSnippets"] = false;
+        if (packageJson.sniper) {
+          if (packageJson.sniper.snippets) {
+            results["hasSnippets"] = true;
+          }
         }
-      }
+        resolve();
+      }).catch(reject);
     });
   },
   checkForBuiltCSSandJS: function(settings) {
-    return new Promise(function(resolve) {
+    return new Promise(function(resolve, reject) {
       packageJsonChecks.getPackageJson(settings).then(function(packageJson) {
         results["hasBuiltDistFiles"] = false;
         if (packageJson.sniper) {
@@ -100,7 +103,7 @@ var packageJsonChecks = {
           }
         }
         resolve();
-      });
+      }).catch(reject);
     });
   },
   getPackageJson: function(settings) {
@@ -113,8 +116,12 @@ var packageJsonChecks = {
           fileToGet = convertGitHubToCDN(url);
         }
         fetchFile(fileToGet, "package.json").then(function(res) {
-          packageJsonChecks.packageJson = JSON.parse(res.body);
-          resolve(packageJsonChecks.packageJson);
+          if (res) {
+            packageJsonChecks.packageJson = JSON.parse(res.body);
+            resolve(packageJsonChecks.packageJson);
+          } else {
+            reject("No package.json found. BioJS components must be npm packages.");
+          }
         });
       }
     });
@@ -190,9 +197,9 @@ function fetchFile(filePath, fileName) {
           console.log("|-x-Failed to find " + fileName);
           resolve(false);
         }
-      })
+      });
     } catch (e) {
-      console.log(e);
+      console.error("~~~~~~~", e);
     }
   });
   return theFile;
@@ -229,7 +236,7 @@ function convertGitHubToCDN(url) {
   //check if this is a node script and execute with the args.
   if (process) {
     var settings = JSON.parse(process.argv[2]);
-    checkComponent(settings).then(function(){
+    checkComponent(settings).then(function() {
       console.log("|========= Check results:");
       console.log(results);
     });
